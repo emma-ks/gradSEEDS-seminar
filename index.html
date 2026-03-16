@@ -366,46 +366,71 @@
     let current = null;
 
     for (const row of rows) {
-      const rawDate = row[COL.date] || '';
-      // Skip header rows and empty rows
-      if (!rawDate || rawDate.toLowerCase().includes('date') || rawDate.toLowerCase().includes('winter') || rawDate.toLowerCase().includes('grad')) continue;
+      const rawDate = (row[COL.date] || '').trim();
 
-      // New session starts when date cell is non-empty
-      if (rawDate.match(/\d{2}\/\d{2}\/\d{4}/) || rawDate.match(/\d{4}-\d{2}-\d{2}/)) {
+      // Skip header/title rows and blank date cells
+      if (!rawDate) continue;
+      const lower = rawDate.toLowerCase();
+      if (lower.includes('date') || lower.includes('winter') || lower.includes('spring') ||
+          lower.includes('fall') || lower.includes('grad') || lower.includes('sign up')) continue;
+
+      // Check if this cell looks like a date (M/D/YYYY, MM/DD/YYYY, YYYY-MM-DD)
+      const looksLikeDate = /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDate) ||
+                            /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
+
+      if (looksLikeDate) {
         current = {
           date: rawDate,
-          location: row[COL.location] || '',
-          attendees: row[COL.attendees] || '',
+          location: (row[COL.location] || '').trim(),
+          attendees: (row[COL.attendees] || '').trim(),
           slots: []
         };
         sessions.push(current);
       }
 
-      if (current && (row[COL.slot] || '').trim()) {
-        current.slots.push({
-          slot: row[COL.slot] || '',
-          name: row[COL.name] || '',
-          time: row[COL.time] || '',
-          topic: row[COL.topic] || '',
-          notes: row[COL.notes] || '',
-        });
-        // Pick up location / attendees from any row in the group
-        if (!current.location && row[COL.location]) current.location = row[COL.location];
-        if (!current.attendees && row[COL.attendees]) current.attendees = row[COL.attendees];
+      // Add slot to current session if slot cell is non-empty
+      if (current) {
+        const slotVal = (row[COL.slot] || '').trim();
+        if (slotVal) {
+          current.slots.push({
+            slot: slotVal,
+            name: (row[COL.name] || '').trim(),
+            time: (row[COL.time] || '').trim(),
+            topic: (row[COL.topic] || '').trim(),
+            notes: (row[COL.notes] || '').trim(),
+          });
+        }
+        // Absorb location / attendees from any row in the group
+        if (!current.location && (row[COL.location] || '').trim())
+          current.location = row[COL.location].trim();
+        if (!current.attendees && (row[COL.attendees] || '').trim())
+          current.attendees = row[COL.attendees].trim();
       }
     }
     return sessions;
   }
 
   // ── FORMAT DATE ─────────────────────────────────────────────────────────────
-  function fmtDate(raw) {
-    const d = new Date(raw + 'T12:00:00');
-    if (isNaN(d)) return raw;
-    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  // Safely parse M/D/YYYY or MM/DD/YYYY or YYYY-MM-DD into a local Date
+  function parseDate(raw) {
+    if (!raw) return new Date(NaN);
+    // YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const [y, m, d] = raw.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+    // M/D/YYYY or MM/DD/YYYY
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)) {
+      const [m, d, y] = raw.split('/').map(Number);
+      return new Date(y, m - 1, d);
+    }
+    return new Date(NaN);
   }
 
-  function parseDate(raw) {
-    return new Date(raw + 'T12:00:00');
+  function fmtDate(raw) {
+    const d = parseDate(raw);
+    if (isNaN(d)) return raw;
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   }
 
   // ── RENDER SESSION ──────────────────────────────────────────────────────────
@@ -459,10 +484,15 @@
 
     try {
       const res = await fetch(SHEET_CSV_URL);
-      if (!res.ok) throw new Error('Fetch failed');
+      if (!res.ok) throw new Error('Fetch failed: ' + res.status);
       const text = await res.text();
       const rows = parseCSV(text);
+
+      // Debug: log first 6 rows to console so you can inspect if needed
+      console.log('CSV rows (first 6):', rows.slice(0, 6));
+
       const sessions = groupSessions(rows);
+      console.log('Parsed sessions:', sessions.length, sessions);
       const today = new Date();
 
       const upcoming = sessions.filter(s => parseDate(s.date) >= today);
