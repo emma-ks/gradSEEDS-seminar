@@ -363,29 +363,36 @@
   // ── GROUP ROWS INTO SESSIONS ────────────────────────────────────────────────
   function groupSessions(rows) {
     const sessions = [];
+    const byDate = {};
     let current = null;
 
     for (const row of rows) {
       const rawDate = (row[COL.date] || '').trim();
 
-      // Skip header/title rows and blank date cells
-      if (!rawDate) continue;
-      const lower = rawDate.toLowerCase();
-      if (lower.includes('date') || lower.includes('winter') || lower.includes('spring') ||
-          lower.includes('fall') || lower.includes('grad') || lower.includes('sign up')) continue;
+      if (rawDate) {
+        const lower = rawDate.toLowerCase();
+        if (lower.includes('date') || lower.includes('winter') || lower.includes('spring') ||
+            lower.includes('fall') || lower.includes('grad') || lower.includes('sign up')) continue;
 
-      // Check if this cell looks like a date (M/D/YYYY, MM/DD/YYYY, YYYY-MM-DD)
-      const looksLikeDate = /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDate) ||
-                            /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
+        // Check if this cell looks like a date (M/D/YYYY, MM/DD/YYYY, YYYY-MM-DD)
+        const looksLikeDate = /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDate) ||
+                              /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
 
-      if (looksLikeDate) {
-        current = {
-          date: rawDate,
-          location: (row[COL.location] || '').trim(),
-          attendees: (row[COL.attendees] || '').trim(),
-          slots: []
-        };
-        sessions.push(current);
+        if (looksLikeDate) {
+          if (byDate[rawDate]) {
+            // Same date repeated on a new row — reuse the existing session
+            current = byDate[rawDate];
+          } else {
+            current = {
+              date: rawDate,
+              location: (row[COL.location] || '').trim(),
+              attendees: (row[COL.attendees] || '').trim(),
+              slots: []
+            };
+            sessions.push(current);
+            byDate[rawDate] = current;
+          }
+        }
       }
 
       // Add slot to current session if slot cell is non-empty
